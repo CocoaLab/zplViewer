@@ -1,0 +1,8 @@
+^XA
+^LH31,32
+^FO00,00^ADR,25,25^FDHello World^FS
+^FO10,6^FDAndere Zeile^FS
+^XZ
+^XA
+^FO100,100^FDFooBar^FS
+^XZ

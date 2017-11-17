@@ -1,0 +1,724 @@
+options {
+    STATIC=false;
+}
+
+
+PARSER_BEGIN(ParseZPL)
+package zplviewer;
+
+import zplviewer.*;
+import java.util.Vector;
+
+public class ParseZPL {   
+    Label label;
+    Vector<Label> labels = new Vector<Label>();
+    
+    public Label getLabel() { return label; }
+    public Vector<Label> getLabels() { return labels; }
+}
+PARSER_END(ParseZPL)
+
+SKIP : { " " | "\n" | "\r" | "\r\n" }
+
+<DEFAULT> TOKEN :
+{
+   < C_XA : "^XA" >
+|  < C_XZ:  "^XZ" >
+|  < C_MC:  "^MC" ( ["A"-"Z"] )? >
+|  < C_LH:  "^LH" >
+|  < C_FO:  "^FO" >
+|  < C_FT:  "^FT" >
+|  < C_FS:  "^FS" >
+|  < C_LR:  "^LR" >
+|  < C_FW:  "^FW" >
+|  < C_CF:  "^CF" >
+|  < C_CI:  "^CI" >
+|  < C_PR:  "^PR" >
+|  < C_PO:  "^PO" >
+|  < C_PM:  "^PM" >
+|  < C_GB:  "^GB" >
+|  < C_PQ:  "^PQ" >
+|  < C_BC:  "^BC" >
+|  < C_BY:  "^BY" >
+|  < C_B3:  "^B3" >
+|  < C_LL:  "^LL" >
+|  < C_FR:  "^FR" >
+|  < C_SN:  "^SN" >
+|  < C_XG:  "^XG" > : VALUE
+|  < C_GS:  "^GS" >
+|  < C_MT:  "^MT" >
+|  < C_MM:  "^MM" >
+|  < C_MN:  "^MN" >
+|  < C_MD:  "^MD" >
+|  < C_A:   "^A"  >  
+|  < C_AO:  "^A" ([ "0" - "9", "A" - "Z" ]){2} >
+|  < C_FD:  "^FD" > : VALUE
+|  < C_ID:  "^ID" > : VALUE
+|  < DIGIT : ["0"-"9"] >
+|  < NUMBER: ["0"-"9"] ( ["0"-"9"] )+ >
+|  < CHAR : ["A" - "Z"] >
+|  < FLOAT : ( ([ "0" - "9" ])+ "." ([ "0" - "9" ]) + ) >
+}
+
+
+<VALUE> TOKEN:
+{
+    < STRING: (~["^","\n"])*>:DEFAULT
+}
+
+
+void parse() : {}
+{
+    label() ( label() )* <EOF>
+}
+
+void label() : {}
+{
+    label_start()
+
+    (
+       label_home()
+     | map_clear()
+     | new_field()
+     | set_font( label.currentFont )
+     | label_reverse_print()
+     | field_orientation()
+     | change_default_font( label.currentFont )
+     | change_international_font()
+     | change_print_rate()
+     | print_orientation()
+     | print_mirror_image()
+     | image_delete() 
+     | set_barcode_defaults( label.bd)
+     | print_quantity()
+     | set_label_length()
+     | media_type()
+     | print_mode()
+     | media_tracking()
+     | media_darknes()
+
+    )*
+
+    label_end()
+}
+
+void label_start(): {}
+{
+    <C_XA>
+    { 
+        label = new Label(); 
+        labels.add( label );
+        return;
+    }
+}
+
+void label_end(): {}
+{
+    <C_XZ>
+}
+
+Token number() :
+{
+    Token number = null;
+}
+{
+  (
+    number = <DIGIT> 
+    |
+    number = <NUMBER> 
+  )
+    { return number; }    
+}
+
+Label.XY optionXY( int dx, int dy) :
+{
+    Integer a = dx, b = dy; 
+    Token sa;
+    Token sb;
+}
+{     
+    (
+        ( sa = number() { a = new Integer( sa.image ); } )?
+        ","
+        ( sb = number() { b = new Integer( sb.image ); } )
+    )?
+
+    { return new Label.XY( a, b ); }       
+}
+
+
+void label_home() : 
+{
+    Label.XY xy = new Label.XY();
+}
+{
+    (
+        <C_LH>
+        xy = optionXY( 0, 0 )
+    )
+    { 
+        label.setLabelHome( xy );
+        System.out.println( "a: " + xy.x + " b: " + xy.y ); 
+        return;
+    }
+}
+
+
+/* not implemented */
+void map_clear() :
+{}
+{
+    <C_MC>    
+}
+
+void new_field() :
+{
+    Label.XY xy;
+    Label.Field field;
+    Token data;
+}
+{
+    ( <C_FO> | <C_FT> )
+    xy = optionXY( 0, 0 ) { field = new Label.Field( xy.x, xy.y ); }
+    (  set_font( field.font ) 
+        |
+       set_barcodeCode128( field ) 
+        |
+       set_barcode_defaults( field.bd )
+        |
+       set_barcodeCode39( field )
+        |
+       field_reverse_print( field )
+    )*
+    ( 
+        (
+            (
+                graphical_symbol( field )
+            )?
+ 
+            <C_FD>
+            data = <STRING> { field.data = data.image; }
+        ) 
+        |
+        ( 
+            graphical_box( field )
+        )
+        |
+        (
+            serialization_data( field )
+        )
+        |
+        (
+            recall_graphic()
+        )        
+    )?
+    <C_FS> 
+    {   
+        System.out.println( "font: " + field.font.name );
+
+        if( field.font.name.isEmpty() ) {
+            field.font = label.currentFont.clone();
+            System.out.println( "choosing default font: " + field.font.name );
+        }
+
+        label.addField( field ); 
+    }
+}
+
+Token get_font_name() :
+{
+    Token font_name = null;
+}
+{
+    (
+        font_name = <DIGIT>
+        |
+        font_name = <CHAR>
+    ) 
+    { return font_name; }
+}
+
+void set_font( Label.Font font ) : 
+{
+    Token font_name = null;
+    Token orientation = null;
+    Token height = null;
+    Token width = null;
+}
+{
+  ( 
+    ( <C_A>      
+       font_name = get_font_name()
+       ( ","
+         ( orientation = <CHAR> )?
+         ( ","
+            ( height = number())?
+            ( ","
+               width = number() 
+            )?
+         )?
+       )?
+     ) 
+     | (
+      <C_AO> { 
+                font.name = getToken(0).image.substring(2,3);
+                font.orientation = getToken(0).image.substring(3);
+                System.out.println( "name: " + font.name + " or: " + font.orientation );
+             }
+            
+        ( ","
+            ( height = number() )?
+            ( ","
+                width = number()
+            )?
+         )?     
+     ) 
+
+    )
+     { 
+        if( font_name != null )
+            font.name = font_name.image;
+
+        if( orientation != null )
+            font.orientation = orientation.image;
+
+        if( height != null )
+            font.height = height.image;
+
+        if( width != null )
+            font.width = width.image;
+
+         System.out.println( "font: " + font.name + " height: " +  font.height + " width: " + font.width );
+
+        return;
+     }
+}
+
+/* ignore */
+void print_quantity() :
+{}
+{
+    <C_PQ> <DIGIT> 
+        ( "," 
+          (<DIGIT>)?
+          ( "," 
+            (<DIGIT>)?
+            ("," 
+                <CHAR>
+            )?
+          )?
+        )?
+}
+
+/* todo */
+void print_mirror_image() :
+{}
+{
+    <C_PM>
+    <CHAR>
+}
+
+/* todo */
+void print_orientation() :
+{}
+{
+    <C_PO>
+    <CHAR>
+}
+
+/* not required to implement */
+void change_print_rate() :
+{}
+{
+    <C_PR>
+    (
+        ( 
+            <CHAR>
+            |
+            <DIGIT>
+        )?
+        ( ","
+            ( 
+                <CHAR>
+                |
+                <DIGIT>
+             )?
+             ( ","
+                ( 
+                    <CHAR>
+                    |
+                    <DIGIT>
+                )?
+             )?
+         )?        
+    )
+}
+
+/* not implemented java has UTF8 */
+void change_international_font() :
+{}
+{
+    <C_CI>
+    number()
+}
+
+/* todo */
+void change_default_font( Label.Font font ) :
+{
+    Token font_name = null;
+    Token orientation = null;
+    Token height = null;
+    Token width = null;
+}
+{
+    <C_CF>
+    ( 
+       font_name = get_font_name()
+       ( ","
+         // ( orientation = <CHAR> )?
+         // ( ","
+            ( height = number())?
+            ( ","
+               width = number() 
+            )?
+         // )?
+       )?
+     )
+     { 
+        if( font_name != null )
+            font.name = font_name.image;
+
+        if( orientation != null )
+            font.orientation = orientation.image;
+
+        if( height != null )
+            font.height = height.image;
+
+        if( width != null )
+            font.width = width.image;
+
+         System.out.println( "default font: " + font.name + " height: " +  font.height + " width: " + font.width );
+
+        return;
+     }
+}
+
+/* todo */
+void label_reverse_print() : 
+{}
+{
+    <C_LR>
+    ( <CHAR> )?
+}
+
+/* todo */
+void field_orientation() :
+{}
+{
+    <C_FW>
+    ( <CHAR> )?
+}
+
+/* not implemented */
+void image_delete() :
+{}
+{   
+    <C_ID> <STRING> <C_FS>
+}
+
+/* todo */
+void graphical_box( Label.Field field ) :
+{
+    Token width = null;
+    Token height = null;
+    Token thickness = null;
+    Token color = null;
+}
+{
+    <C_GB>
+    (     
+        ( width = number() )? // width
+        ( ","
+            ( height = number() )? // height
+            ( ","
+                ( thickness = number() )? // thickness
+                ( ","
+                    ( color = <CHAR>)? // line color black or white
+                )?
+            )?
+        )?
+    )
+    {       
+        field.gb = new Label.GraphicalBox();
+
+        if( width != null )
+            field.gb.width = new Integer( width.image );
+
+        if( height != null )
+            field.gb.height = new Integer( height.image );
+
+        if( thickness != null )
+            field.gb.thickness = new Integer( thickness.image );
+
+        if( color != null )
+            field.gb.color = color.image.charAt(0);
+    }
+}
+
+void set_barcodeCode128( Label.Field field ) :
+{
+    Token orientation = null;
+    Token height = null;
+    Token print_interpolation = null;
+    Token ucc_check_digit = null;
+    Token mode = null;
+    Token print_above = null;
+}
+{
+    <C_BC>
+      (
+        ( orientation = <CHAR> )?
+        ( ","
+          (
+            height = number()
+          )?
+          ( ","
+            ( 
+                print_interpolation = <CHAR>              
+            )?
+            ( ","
+                (
+                  print_above = <CHAR>
+                )?
+                ( ","
+                    ( 
+                        ucc_check_digit = <CHAR> 
+                    )?
+                    ( ","
+                        (
+                            mode = <CHAR>
+                        )?
+                    )?
+                )?
+             )?
+          )?          
+        )?
+      )     
+   {
+        if( orientation != null )
+            field.code128_orientation = orientation.image;
+        if( height != null )
+            field.code128_height = height.image;
+        if( print_interpolation != null )
+            field.code128_interpolation = print_interpolation.image;
+        if( ucc_check_digit != null )
+            field.code128_ucc_check_digit = ucc_check_digit.image;
+        if( mode != null )
+            field.code128_mode = mode.image;
+
+        field.isCode128 = true;
+
+        return;
+   }
+}
+
+void set_barcode_defaults( Label.BarcodeDefaults bd ) :
+{
+    Token width = null;
+    Token height = null;
+    Token narrow = null;
+}
+{
+    <C_BY>
+    ( 
+        ( width = <DIGIT>
+            |
+          width = <NUMBER>
+        )?
+        ( ","
+          ( 
+            narrow = <FLOAT>
+          )?
+          ( ","
+            (
+                height = <DIGIT>
+                   |
+                height = <NUMBER>
+            )?
+          )?
+        )?
+    )
+    {
+        if( width != null )
+            bd.width = width.image;
+        if( height != null )
+            bd.height = height.image;
+        if( narrow != null )
+            bd.narrow = narrow.image;
+
+        return;
+    }
+}
+
+/* todo? */
+void set_label_length() :
+{}
+{
+    <C_LL> number()
+}
+
+/* todo */
+void set_barcodeCode39(  Label.Field field ) :
+{
+    Token orientation = null;
+    Token height = null;
+    Token print_interpolation = null;
+    Token mod43_check_digit = null;
+    Token mode = null;
+    Token print_above = null;
+}
+{
+    <C_B3>
+      (
+        ( orientation = <CHAR> )?
+        ( ","
+          (
+            mod43_check_digit = <CHAR>           
+          )?
+          ( ","
+            ( 
+                height = number()                
+            )?
+            ( ","
+              ( 
+                print_interpolation = <CHAR>
+              )?
+              ( ","
+                (
+                    print_above = <CHAR>                    
+                )?
+              )?
+            )?
+          )?          
+        )?
+      )     
+   {
+        if( orientation != null )
+            field.code39_orientation = orientation.image;
+        if( height != null )
+            field.code39_height = height.image;
+        if( print_interpolation != null )
+            field.code39_interpolation = print_interpolation.image;
+        if( mod43_check_digit != null )
+            field.code39_mod43_check_digit = mod43_check_digit.image;
+        
+        field.isCode39 = true;
+
+        return;
+   }
+}
+
+/* todo */
+void field_reverse_print( Label.Field field ) :
+{}
+{
+    <C_FR>
+}
+
+/* todo? */
+void serialization_data( Label.Field field ) :
+{
+    Token starting = null;    
+}
+{
+    ( <C_SN> 
+        ( starting = number() ) ? /* starting value */
+        ( ","
+          ( number() ) ? /* increment/decrement value */
+          ( ","
+             <CHAR> /* add leading zeros (Y or N) */
+          )?
+        )?
+    )
+    { 
+        field.isSerialsation = true;
+
+        if( starting != null )
+            field.data = starting.image;
+        else
+            field.data = "1";        
+    }
+}
+
+/* todo */
+void recall_graphic() :
+{}
+{
+    <C_XG> <STRING> 
+    ( ","
+       ( number() )?
+       ( ","
+         number() 
+       )?
+    )?
+}
+
+/* todo */
+void graphical_symbol( Label.Field field ) :
+{
+    Token width = null;
+    Token height = null;
+}
+{
+  (
+    <C_GS>
+    ( <CHAR> )? /* orientation */
+    ( ","
+        ( height = number() )? /* height */
+        ( ","
+            width = number() /* width */
+        )?
+    )?
+  )
+  { 
+    field.isGraphicalSymbol = true;
+
+    if( height != null )
+        field.font.height = height.image;
+
+    if( width != null )
+        field.font.width = width.image;
+  }
+}
+
+/* ignored */
+void media_type() :
+{}
+{
+    <C_MT> <CHAR>
+}
+
+/* ignored */
+void print_mode() :
+{}
+{
+    <C_MM> <CHAR>
+    ( ","
+      <CHAR> )?
+}
+
+/* ignored */
+void media_tracking() :
+{}
+{
+    <C_MN> ( <CHAR> )?
+}
+
+/* ignored */
+void media_darknes() :
+{}
+{
+    <C_MD> ( number() )?
+}
+
+
